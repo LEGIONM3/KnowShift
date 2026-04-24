@@ -84,3 +84,4 @@ services:
     region: oregon
     plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []                   # [] = internal Render traffic only (no public access)
