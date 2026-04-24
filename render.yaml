@@ -6,7 +6,7 @@ services:
     env: python
     region: oregon
     plan: free
-    rootDir: knowshift-backend        # ← Render uses this as the working directory
+    rootDir: knowshift-backend
     buildCommand: pip install -r requirements.txt
     startCommand: >
       uvicorn app.main:app
@@ -24,10 +24,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: knowshift-redis
-          property: connectionString
+        sync: false                   # Set manually in dashboard: your existing Redis URL
 
   # ── Celery Worker ──────────────────────────────────────────────────────────
   - type: worker
@@ -49,10 +46,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: knowshift-redis
-          property: connectionString
+        sync: false
 
   # ── Celery Beat Scheduler ──────────────────────────────────────────────────
   - type: worker
@@ -73,15 +67,9 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: knowshift-redis
-          property: connectionString
+        sync: false
 
-  # ── Redis Instance ─────────────────────────────────────────────────────────
-  - type: redis
-    name: knowshift-redis
-    region: oregon
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []                   # [] = internal Render traffic only (no public access)
+  # NOTE: Redis is NOT defined here — you already have a free-tier Redis
+  # instance on your Render account (red-d7lohcl7vvec73eh0k8g).
+  # Set REDIS_URL manually in the dashboard for each service above.
+
