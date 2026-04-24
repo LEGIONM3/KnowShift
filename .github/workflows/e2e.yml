@@ -1,0 +1,101 @@
+name: KnowShift E2E & Performance Tests
+
+on:
+  # Run after a successful deployment to staging/prod
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Backend API URL to test against"
+        required: true
+        default: "https://knowshift-api.onrender.com"
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options: [staging, production]
+
+  # Also run on a schedule (daily at 05:00 UTC)
+  schedule:
+    - cron: "0 5 * * *"
+
+jobs:
+  e2e-tests:
+    name: E2E & Demo Validation (${{ github.event.inputs.environment || 'scheduled' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      TEST_API_URL: ${{ github.event.inputs.api_url || 'https://knowshift-api.onrender.com' }}
+      ENVIRONMENT:  ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        working-directory: knowshift-backend
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Wait for API to be ready
+        run: |
+          echo "⏳ Waiting for API at $TEST_API_URL ..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" $TEST_API_URL/health || echo "000")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "✅ API ready (attempt $i)"
+              exit 0
+            fi
+            echo "  Attempt $i: status $STATUS — retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ API not ready after 2 minutes"
+          exit 1
+
+      - name: Run E2E tests
+        working-directory: knowshift-backend
+        run: |
+          pytest tests/e2e/ \
+            -v --tb=short \
+            -m "e2e" \
+            --timeout=90
+        env:
+          TEST_API_URL: ${{ env.TEST_API_URL }}
+
+      - name: Run demo validation
+        working-directory: knowshift-backend
+        run: |
+          pytest tests/demo/ \
+            -v --tb=short \
+            -m "demo" \
+            --timeout=120 \
+            -s
+        env:
+          TEST_API_URL: ${{ env.TEST_API_URL }}
+
+      - name: Run performance benchmarks
+        working-directory: knowshift-backend
+        run: |
+          pytest tests/performance/ \
+            -v --tb=short \
+            -m "performance" \
+            --timeout=120 \
+            -s
+        env:
+          TEST_API_URL: ${{ env.TEST_API_URL }}
+
+      - name: Post results summary
+        if: always()
+        run: |
+          echo "## 🧪 E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API URL | $TEST_API_URL |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | $ENVIRONMENT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run ID | ${{ github.run_id }} |" >> $GITHUB_STEP_SUMMARY

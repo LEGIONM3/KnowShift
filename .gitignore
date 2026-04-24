@@ -1,0 +1,54 @@
+# ── Secrets — NEVER commit real credentials ───────────────────────────────────
+.env
+.env.local
+.env.*.local
+# Keep .env.example and .env.production (they use placeholders, not real secrets)
+!.env.example
+!.env.production
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+*.local
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# Keep Dockerfile but ignore docker volumes
+docker-volumes/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+unit_coverage.xml
+.hypothesis/

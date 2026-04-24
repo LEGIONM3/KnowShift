@@ -1,0 +1,116 @@
+version: "3.9"
+
+# =============================================================================
+# KnowShift — Local Development Stack
+# Services: FastAPI + Celery Worker + Celery Beat + Redis
+# =============================================================================
+# Usage:
+#   docker compose up --build          # Start everything
+#   docker compose up api              # API only (no workers)
+#   docker compose logs -f worker      # Tail worker logs
+#   docker compose down -v             # Stop + remove volumes
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Redis — message broker and Celery result backend
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: knowshift-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # FastAPI — main HTTP API
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowshift-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app           # Live-reload in development
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ---------------------------------------------------------------------------
+  # Celery Worker — processes background tasks
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowshift-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: celery -A app.workers.tasks worker --loglevel=info --concurrency=2
+
+  # ---------------------------------------------------------------------------
+  # Celery Beat — periodic task scheduler
+  # ---------------------------------------------------------------------------
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowshift-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: celery -A app.workers.tasks beat --loglevel=info
+
+  # ---------------------------------------------------------------------------
+  # Flower — optional Celery monitoring UI (http://localhost:5555)
+  # ---------------------------------------------------------------------------
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowshift-flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.tasks flower --port=5555
+    profiles:
+      - monitoring   # Only starts with: docker compose --profile monitoring up

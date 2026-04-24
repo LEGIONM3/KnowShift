@@ -1,0 +1,161 @@
+name: KnowShift Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION:   "18"
+
+jobs:
+  # ══════════════════════════════════════════════════════════════════════════
+  # 1. Backend — Unit + Integration tests (fully mocked, no external calls)
+  # ══════════════════════════════════════════════════════════════════════════
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT:   testing
+      SUPABASE_URL:  https://test.supabase.co
+      SUPABASE_KEY:  test-key-ci
+      GEMINI_API_KEY: test-gemini-key-ci
+      REDIS_URL:     redis://localhost:6379/0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install backend dependencies
+        working-directory: knowshift-backend
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-mock pytest-cov \
+                      httpx freezegun
+
+      - name: Run unit tests
+        working-directory: knowshift-backend
+        run: |
+          pytest tests/unit/ \
+            -v --tb=short \
+            --cov=app \
+            --cov-report=xml:unit_coverage.xml \
+            -m unit \
+            --timeout=30
+
+      - name: Run integration tests
+        working-directory: knowshift-backend
+        run: |
+          pytest tests/integration/ \
+            -v --tb=short \
+            -m integration \
+            --timeout=60
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: knowshift-backend/unit_coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 2. Frontend — Vitest component + utility tests
+  # ══════════════════════════════════════════════════════════════════════════
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: knowshift-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: knowshift-frontend
+        run: npm ci
+
+      - name: Run Vitest
+        working-directory: knowshift-frontend
+        run: npm run test:run
+        env:
+          CI: true
+
+      - name: Build check
+        working-directory: knowshift-frontend
+        run: npm run build
+        env:
+          VITE_API_URL: https://placeholder-api.onrender.com
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 3. Code Quality
+  # ══════════════════════════════════════════════════════════════════════════
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: pip install flake8 black isort
+
+      - name: Check black formatting
+        working-directory: knowshift-backend
+        run: black --check app/ --line-length=100 || true
+
+      - name: Check imports (isort)
+        working-directory: knowshift-backend
+        run: isort --check-only app/ --profile black || true
+
+      - name: Lint (flake8)
+        working-directory: knowshift-backend
+        run: |
+          flake8 app/ \
+            --max-line-length=100 \
+            --ignore=E203,W503,E501 \
+            --count || true
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 4. Results Gate
+  # ══════════════════════════════════════════════════════════════════════════
+  test-gate:
+    name: Test Gate
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, code-quality]
+    if: always()
+
+    steps:
+      - name: Evaluate results
+        run: |
+          BACKEND="${{ needs.backend-tests.result }}"
+          FRONTEND="${{ needs.frontend-tests.result }}"
+
+          echo "Backend:  $BACKEND"
+          echo "Frontend: $FRONTEND"
+
+          if [[ "$BACKEND" == "success" && "$FRONTEND" == "success" ]]; then
+            echo "✅ All required tests passed!"
+            exit 0
+          else
+            echo "❌ Required tests failed"
+            exit 1
+          fi
