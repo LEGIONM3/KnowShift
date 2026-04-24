@@ -1,0 +1,86 @@
+services:
+
+  # ── Main FastAPI Web Service ────────────────────────────────────────────────
+  - type: web
+    name: knowshift-api
+    env: python
+    region: oregon
+    plan: free
+    rootDir: knowshift-backend        # ← Render uses this as the working directory
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: knowshift-redis
+          property: connectionString
+
+  # ── Celery Worker ──────────────────────────────────────────────────────────
+  - type: worker
+    name: knowshift-worker
+    env: python
+    region: oregon
+    plan: free
+    rootDir: knowshift-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      celery -A app.workers.tasks worker
+      --loglevel=info
+      --concurrency=1
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: knowshift-redis
+          property: connectionString
+
+  # ── Celery Beat Scheduler ──────────────────────────────────────────────────
+  - type: worker
+    name: knowshift-beat
+    env: python
+    region: oregon
+    plan: free
+    rootDir: knowshift-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      celery -A app.workers.tasks beat
+      --loglevel=info
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: knowshift-redis
+          property: connectionString
+
+  # ── Redis Instance ─────────────────────────────────────────────────────────
+  - type: redis
+    name: knowshift-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru
